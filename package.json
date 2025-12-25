@@ -1,0 +1,27 @@
+{
+  "name": "guestdj",
+  "version": "1.0.0",
+  "description": "Party DJ Queue App - Let your guests request songs!",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev:server": "nodemon -r dotenv/config server/index.js",
+    "dev:client": "cd client && npm start",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "cd client && npm run build",
+    "install:all": "npm install && cd client && npm install"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "nanoid": "^3.3.7",
+    "play-dl": "^1.9.7",
+    "socket.io": "^4.7.2",
+    "ytpl": "^2.3.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.0.2"
+  }
+}
