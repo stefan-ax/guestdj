@@ -47,7 +47,6 @@ function Home() {
     <div className="home">
       <div className="home-logo">🎵</div>
       <h1>GuestDJ</h1>
-      <p className="home-subtitle">Let your guests be the DJ</p>
       
       <div className="home-actions">
         <div className="home-card">
