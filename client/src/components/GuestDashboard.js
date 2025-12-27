@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { FiSearch, FiPlus, FiMusic, FiCheck, FiClock, FiGithub } from 'react-icons/fi';
+import { FiSearch, FiPlus, FiMusic, FiCheck, FiClock, FiGithub, FiUnlock } from 'react-icons/fi';
 import { searchYouTube } from '../utils/youtube';
 
 // Use current hostname for socket connection (works on mobile)
@@ -62,6 +62,12 @@ function GuestDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [addedSongs, setAddedSongs] = useState(new Set());
+  
+  // Admin authentication state
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminAuthLoading, setAdminAuthLoading] = useState(false);
+  const [adminAuthError, setAdminAuthError] = useState('');
 
   // Calculate ETA for a song at a given index
   const calculateETA = (index) => {
@@ -97,6 +103,36 @@ function GuestDashboard() {
     }
     
     return formatETA(totalSeconds);
+  };
+
+  // Admin authentication
+  const authenticateAsAdmin = async () => {
+    setAdminAuthLoading(true);
+    setAdminAuthError('');
+    
+    try {
+      const response = await fetch(`/api/rooms/${roomId}/admin-auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setAdminAuthError(data.error || 'Authentication failed');
+        return;
+      }
+      
+      // Store admin token and redirect to admin dashboard
+      localStorage.setItem(`admin_${roomId}`, data.adminToken);
+      navigate(`/admin/${roomId}`);
+      
+    } catch (err) {
+      setAdminAuthError('Network error. Please try again.');
+    } finally {
+      setAdminAuthLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -266,6 +302,21 @@ function GuestDashboard() {
         </Link>
         <div className="room-info">
           <span className="room-id">{guestName}</span>
+          <button 
+            className="btn btn-link" 
+            onClick={() => setShowAdminModal(true)}
+            style={{ 
+              fontSize: '0.8rem', 
+              padding: '0.25rem 0.5rem', 
+              marginLeft: '0.5rem',
+              color: 'var(--text-secondary)',
+              background: 'var(--bg-tertiary)',
+              textDecoration: 'none'
+            }}
+            title="Sign in as admin"
+          >
+            Guest Mode
+          </button>
         </div>
       </header>
 
@@ -390,6 +441,59 @@ function GuestDashboard() {
           </div>
         </div>
       </div>
+      
+      {/* Admin Authentication Modal */}
+      {showAdminModal && (
+        <div className="modal-overlay" onClick={() => setShowAdminModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>🔐 Admin Sign In</h2>
+            <p>Enter the room password to access admin controls</p>
+            
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              authenticateAsAdmin();
+            }}>
+              <div className="input-group">
+                <input
+                  type="password"
+                  className="input"
+                  placeholder="Room password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              
+              {adminAuthError && (
+                <p style={{ color: '#ef4444', fontSize: '0.875rem', margin: '0.5rem 0' }}>
+                  {adminAuthError}
+                </p>
+              )}
+              
+              <div className="modal-actions">
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => {
+                    setShowAdminModal(false);
+                    setAdminPassword('');
+                    setAdminAuthError('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  disabled={adminAuthLoading || !adminPassword.trim()}
+                >
+                  {adminAuthLoading ? 'Signing In...' : 'Sign In'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

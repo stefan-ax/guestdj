@@ -6,6 +6,7 @@ function Home() {
   const navigate = useNavigate();
   const [hostName, setHostName] = useState('');
   const [roomCode, setRoomCode] = useState('');
+  const [roomPassword, setRoomPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -17,7 +18,10 @@ function Home() {
       const response = await fetch('/api/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hostName: hostName || 'DJ' })
+        body: JSON.stringify({ 
+          hostName: hostName || 'DJ',
+          password: roomPassword || null
+        })
       });
       
       const data = await response.json();
@@ -58,6 +62,17 @@ function Home() {
               placeholder="DJ Awesome"
               value={hostName}
               onChange={(e) => setHostName(e.target.value)}
+            />
+          </div>
+          
+          <div className="input-group">
+            <label>Room Password (optional)</label>
+            <input
+              type="password"
+              className="input"
+              placeholder="Set a password for admin access"
+              value={roomPassword}
+              onChange={(e) => setRoomPassword(e.target.value)}
             />
           </div>
           

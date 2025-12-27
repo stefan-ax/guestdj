@@ -663,15 +663,31 @@ body {
   width: 100%;
 }
 
-.modal h2 {
+.modal-content {
+  background: var(--bg-secondary);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  padding: 2rem;
+  max-width: 400px;
+  width: 100%;
+}
+
+.modal h2, .modal-content h2 {
   font-size: 1.25rem;
   margin-bottom: 0.5rem;
 }
 
-.modal p {
+.modal p, .modal-content p {
   color: var(--text-secondary);
   font-size: 0.875rem;
   margin-bottom: 1.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
 }
 
 .share-link {

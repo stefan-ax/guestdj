@@ -169,7 +169,7 @@ async function performYouTubeSearch(query, options = {}) {
 }
 
 // Create a new room
-function createRoom(hostName) {
+function createRoom(hostName, password = null) {
   const roomId = generateRoomId();
   const adminToken = nanoid(16);
   
@@ -177,6 +177,7 @@ function createRoom(hostName) {
     id: roomId,
     adminToken,
     hostName,
+    password,
     queue: [],
     fallbackPlaylist: [],
     currentSong: null,
@@ -342,9 +343,29 @@ app.get('/api/youtube/playlist', async (req, res) => {
 
 // API Routes
 app.post('/api/rooms', (req, res) => {
-  const { hostName } = req.body;
-  const { roomId, adminToken } = createRoom(hostName || 'DJ');
+  const { hostName, password } = req.body;
+  const { roomId, adminToken } = createRoom(hostName || 'DJ', password);
   res.json({ roomId, adminToken });
+});
+
+// Admin authentication endpoint
+app.post('/api/rooms/:roomId/admin-auth', (req, res) => {
+  const { password } = req.body;
+  const room = getRoom(req.params.roomId);
+  
+  if (!room) {
+    return res.status(404).json({ error: 'Room not found' });
+  }
+  
+  if (!room.password) {
+    return res.status(400).json({ error: 'This room does not have a password set' });
+  }
+  
+  if (room.password !== password) {
+    return res.status(401).json({ error: 'Incorrect password' });
+  }
+  
+  res.json({ adminToken: room.adminToken });
 });
 
 app.get('/api/rooms/:roomId', (req, res) => {
