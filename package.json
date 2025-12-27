@@ -2,6 +2,7 @@
   "name": "guestdj",
   "version": "1.0.0",
   "description": "Party DJ Queue App - Let your guests request songs!",
+  "type": "module",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",

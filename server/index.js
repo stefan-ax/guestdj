@@ -1,11 +1,15 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-const path = require('path');
-const { nanoid } = require('nanoid');
-const { search: youtubeSearch } = require('youtube-search-without-api-key');
-const yts = require('youtube-sr').default;
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import path from 'path';
+import { nanoid } from 'nanoid';
+import { search as youtubeSearch } from 'youtube-search-without-api-key';
+import yts from 'youtube-sr';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
