@@ -4,9 +4,27 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const { nanoid } = require('nanoid');
-const play = require('play-dl');
+const { search: youtubeSearch } = require('youtube-search-without-api-key');
 
 const app = express();
+
+// Search cache to reduce API calls
+const searchCache = new Map();
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+const MAX_CACHE_SIZE = 1000;
+
+// Rate limiting protection
+const rateLimitState = {
+  lastRequestTime: 0,
+  requestCount: 0,
+  windowStart: Date.now(),
+  isRateLimited: false,
+  rateLimitResetTime: 0
+};
+
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute window
+const MAX_REQUESTS_PER_WINDOW = 50; // Conservative limit
+const RATE_LIMIT_DURATION = 5 * 60 * 1000; // 5 minutes cooldown
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -38,6 +56,117 @@ function formatDuration(seconds) {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+// Cache management functions
+function getCacheKey(query) {
+  return `search:${query.toLowerCase().trim()}`;
+}
+
+function getCachedResult(query) {
+  const key = getCacheKey(query);
+  const cached = searchCache.get(key);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.data;
+  }
+  
+  if (cached) {
+    searchCache.delete(key);
+  }
+  
+  return null;
+}
+
+function setCachedResult(query, data) {
+  const key = getCacheKey(query);
+  
+  // Clean old cache entries if we're at max size
+  if (searchCache.size >= MAX_CACHE_SIZE) {
+    const oldestKey = searchCache.keys().next().value;
+    searchCache.delete(oldestKey);
+  }
+  
+  searchCache.set(key, {
+    data,
+    timestamp: Date.now()
+  });
+}
+
+// Rate limiting functions
+function checkRateLimit() {
+  const now = Date.now();
+  
+  // Check if we're currently rate limited
+  if (rateLimitState.isRateLimited && now < rateLimitState.rateLimitResetTime) {
+    return { allowed: false, retryAfter: rateLimitState.rateLimitResetTime - now };
+  }
+  
+  // Reset rate limit state if cooldown period has passed
+  if (rateLimitState.isRateLimited && now >= rateLimitState.rateLimitResetTime) {
+    rateLimitState.isRateLimited = false;
+    rateLimitState.requestCount = 0;
+    rateLimitState.windowStart = now;
+  }
+  
+  // Reset window if needed
+  if (now - rateLimitState.windowStart >= RATE_LIMIT_WINDOW) {
+    rateLimitState.requestCount = 0;
+    rateLimitState.windowStart = now;
+  }
+  
+  // Check if we're exceeding rate limits
+  if (rateLimitState.requestCount >= MAX_REQUESTS_PER_WINDOW) {
+    rateLimitState.isRateLimited = true;
+    rateLimitState.rateLimitResetTime = now + RATE_LIMIT_DURATION;
+    return { allowed: false, retryAfter: RATE_LIMIT_DURATION };
+  }
+  
+  // Allow request and increment counter
+  rateLimitState.requestCount++;
+  rateLimitState.lastRequestTime = now;
+  return { allowed: true };
+}
+
+// Exponential backoff retry function
+async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 1000) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      // Don't retry on certain errors
+      if (error.message.includes('Invalid') || error.message.includes('Not found')) {
+        throw error;
+      }
+      
+      // If this is the last attempt, throw the error
+      if (attempt === maxRetries - 1) {
+        throw error;
+      }
+      
+      // Wait with exponential backoff
+      const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+      console.log(`Search attempt ${attempt + 1} failed, retrying in ${Math.round(delay)}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+// YouTube search using youtube-search-without-api-key
+async function performYouTubeSearch(query, options = {}) {
+  try {
+    console.log(`Searching YouTube for query: "${query}"`);
+    const results = await youtubeSearch(query);
+    
+    if (!results || results.length === 0) {
+      throw new Error('No search results found');
+    }
+    
+    return results.slice(0, 10); // Limit to 10 results
+  } catch (error) {
+    console.error('YouTube search error:', error.message);
+    throw error;
+  }
+}
+
 // Create a new room
 function createRoom(hostName) {
   const roomId = generateRoomId();
@@ -65,7 +194,7 @@ function getRoom(roomId) {
   return rooms.get(roomId);
 }
 
-// YouTube Search endpoint using play-dl (no API key required, no quota limits)
+// YouTube Search endpoint with rate limiting protection and caching
 app.get('/api/youtube/search', async (req, res) => {
   const { q } = req.query;
   
@@ -74,59 +203,59 @@ app.get('/api/youtube/search', async (req, res) => {
   }
   
   try {
-    const searchResults = await play.search(q, { limit: 10, source: { youtube: 'video' } });
+    // Check cache first
+    const cachedResult = getCachedResult(q);
+    if (cachedResult) {
+      console.log(`Serving cached result for query: "${q}"`);
+      return res.json(cachedResult);
+    }
+    
+    // Check rate limits
+    const rateLimitCheck = checkRateLimit();
+    if (!rateLimitCheck.allowed) {
+      const retryAfterSeconds = Math.ceil(rateLimitCheck.retryAfter / 1000);
+      return res.status(429).json({ 
+        error: 'Rate limit exceeded. Please try again later.',
+        retryAfter: retryAfterSeconds,
+        type: 'rate_limit'
+      });
+    }
+    
+    // Perform search
+    const searchResults = await performYouTubeSearch(q);
     
     const results = searchResults.map(item => ({
-      videoId: item.id,
+      videoId: item.id?.videoId || item.id,
       title: item.title,
-      thumbnail: item.thumbnails?.[0]?.url,
-      channel: item.channel?.name || 'Unknown',
-      duration: formatDuration(item.durationInSec),
-      views: item.views
+      thumbnail: item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.url,
+      channel: item.snippet?.channelTitle || 'Unknown',
+      duration: item.duration_raw || item.snippet?.duration || 'Unknown',
+      views: item.views || 'Unknown'
     }));
     
+    // Cache the successful result
+    setCachedResult(q, results);
+    
+    console.log(`Search completed for query: "${q}" - ${results.length} results`);
     res.json(results);
+    
   } catch (error) {
     console.error('YouTube search error:', error);
-    res.status(500).json({ error: 'Failed to search YouTube. Please try again.' });
+    
+    // Generic error - the new library is more reliable
+    res.status(500).json({ 
+      error: 'Failed to search YouTube. Please try again.',
+      type: 'search_error'
+    });
   }
 });
 
-// YouTube Playlist endpoint - fetch all videos from a playlist
+// YouTube Playlist endpoint - currently not supported with youtube-search-without-api-key
 app.get('/api/youtube/playlist', async (req, res) => {
-  const { url } = req.query;
-  
-  if (!url) {
-    return res.status(400).json({ error: 'Playlist URL is required' });
-  }
-  
-  try {
-    // Validate it's a playlist URL
-    const urlType = await play.validate(url);
-    if (urlType !== 'yt_playlist') {
-      return res.status(400).json({ error: 'Invalid YouTube playlist URL' });
-    }
-    
-    const playlist = await play.playlist_info(url, { incomplete: true });
-    const videos = await playlist.all_videos();
-    
-    const results = videos.map(item => ({
-      videoId: item.id,
-      title: item.title,
-      thumbnail: item.thumbnails?.[0]?.url,
-      channel: item.channel?.name || 'Unknown',
-      duration: formatDuration(item.durationInSec)
-    }));
-    
-    res.json({
-      title: playlist.title,
-      videoCount: playlist.videoCount,
-      videos: results
-    });
-  } catch (error) {
-    console.error('YouTube playlist error:', error);
-    res.status(500).json({ error: 'Failed to fetch playlist. Please check the URL and try again.' });
-  }
+  res.status(501).json({ 
+    error: 'Playlist functionality is currently not supported. Please add songs individually by searching.',
+    type: 'not_supported'
+  });
 });
 
 // API Routes

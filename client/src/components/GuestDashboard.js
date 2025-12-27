@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { FiSearch, FiPlus, FiMusic, FiCheck, FiClock } from 'react-icons/fi';
+import { FiSearch, FiPlus, FiMusic, FiCheck, FiClock, FiGithub } from 'react-icons/fi';
 import { searchYouTube } from '../utils/youtube';
 
 // Use current hostname for socket connection (works on mobile)
@@ -16,6 +16,12 @@ const AVG_SONG_DURATION = 210;
 function parseDuration(durationStr) {
   if (!durationStr) return AVG_SONG_DURATION;
   const parts = durationStr.split(':').map(Number);
+  
+  // Check if any part is NaN
+  if (parts.some(part => isNaN(part))) {
+    return AVG_SONG_DURATION;
+  }
+  
   if (parts.length === 2) {
     return parts[0] * 60 + parts[1];
   } else if (parts.length === 3) {
@@ -26,6 +32,11 @@ function parseDuration(durationStr) {
 
 // Format seconds to human readable ETA
 function formatETA(seconds) {
+  // Handle invalid input
+  if (isNaN(seconds) || seconds < 0) {
+    return '~ 0 min';
+  }
+  
   if (seconds < 60) return '< 1 min';
   const minutes = Math.ceil(seconds / 60);
   if (minutes < 60) return `~${minutes} min`;
@@ -58,18 +69,31 @@ function GuestDashboard() {
     
     // Add remaining time for current song
     if (currentSong && currentSongStartedAt) {
-      const elapsed = (Date.now() - currentSongStartedAt) / 1000;
-      const currentDuration = parseDuration(currentSong.duration);
-      const remaining = Math.max(0, currentDuration - elapsed);
-      totalSeconds += remaining;
+      const startTime = typeof currentSongStartedAt === 'number' ? currentSongStartedAt : Date.parse(currentSongStartedAt);
+      if (!isNaN(startTime)) {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const currentDuration = parseDuration(currentSong.duration);
+        const remaining = Math.max(0, currentDuration - elapsed);
+        if (!isNaN(remaining)) {
+          totalSeconds += remaining;
+        }
+      }
     } else if (currentSong) {
       // If no start time, assume half the song is left
-      totalSeconds += parseDuration(currentSong.duration) / 2;
+      const halfDuration = parseDuration(currentSong.duration) / 2;
+      if (!isNaN(halfDuration)) {
+        totalSeconds += halfDuration;
+      }
     }
     
     // Add duration of all songs before this one in queue
     for (let i = 0; i < index; i++) {
-      totalSeconds += parseDuration(queue[i].duration);
+      if (queue[i] && queue[i].duration) {
+        const duration = parseDuration(queue[i].duration);
+        if (!isNaN(duration)) {
+          totalSeconds += duration;
+        }
+      }
     }
     
     return formatETA(totalSeconds);
@@ -209,7 +233,11 @@ function GuestDashboard() {
       <div className="modal-overlay">
         <div className="name-modal">
           <h2>👋 Welcome!</h2>
-          <p>Enter your name so the DJ knows who's requesting songs</p>
+          <p>This app was developed for </p>
+          <p style={{ color: '#22c55e' }}>27th December 2025 </p>
+          <p>It is not intended for production or commercial use (yet)</p>
+          <p>Built with ❤️ by <a href="https://github.com/stefan-ax" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.5rem', backgroundColor: '#333', color: '#fff', borderRadius: '0.375rem', textDecoration: 'none', fontSize: '0.875rem', marginLeft: '0.25rem' }}><FiGithub /> stefan-ax</a></p>
+          
           <form onSubmit={handleNameSubmit}>
             <div className="input-group">
               <input
@@ -351,7 +379,7 @@ function GuestDashboard() {
                       <div className="song-meta">
                         <span>Added by {song.addedBy}</span>
                         <span className="eta-badge">
-                          <FiClock /> {calculateETA(index)}
+                          <FiClock /> Coming in {calculateETA(index)}
                         </span>
                       </div>
                     </div>
