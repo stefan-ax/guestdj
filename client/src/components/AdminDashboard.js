@@ -583,10 +583,15 @@ function AdminDashboard() {
 
             {/* Fallback Playlist Section */}
             <div className="queue-header" style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
-              <h2>
-                <span style={{ color: 'var(--warning)' }}>🎵</span> Fallback
-                <span className="queue-count">{fallbackPlaylist.length}</span>
-              </h2>
+              <div>
+                <h2>
+                  <span style={{ color: 'var(--warning)' }}>🎵</span> Fallback
+                  <span className="queue-count">{fallbackPlaylist.length}</span>
+                </h2>
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  Plays in order • Drag to reorder
+                </p>
+              </div>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowFallbackModal(true)}>
                 <FiPlus size={14} /> Add
               </button>
@@ -758,28 +763,36 @@ function AdminDashboard() {
             
             {/* Current fallback playlist */}
             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
-              <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>
                 Playlist ({fallbackPlaylist.length} songs)
               </h3>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                📋 Songs play in order from top to bottom. Drag to reorder.
+              </p>
               {fallbackPlaylist.length === 0 ? (
                 <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>
                   No fallback songs yet. Search above or import a playlist!
                 </p>
               ) : (
-                <div className="fallback-list">
-                  {fallbackPlaylist.map((song, index) => (
-                    <div key={song.id} className="fallback-item">
-                      <span className="fallback-index">{index + 1}</span>
-                      <img src={song.thumbnail} alt="" className="song-thumbnail" />
-                      <div className="song-info">
-                        <div className="song-title">{song.title}</div>
-                      </div>
-                      <button className="btn btn-icon btn-danger" onClick={() => handleRemoveFromFallback(song.id)}>
-                        <FiTrash2 size={16} />
-                      </button>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleFallbackDragEnd}
+                >
+                  <SortableContext items={fallbackPlaylist.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                    <div className="fallback-list">
+                      {fallbackPlaylist.map((song) => (
+                        <SortableSongItem
+                          key={song.id}
+                          song={song}
+                          onRemove={handleRemoveFromFallback}
+                          onPlay={handlePlayFromFallback}
+                          isFallback={true}
+                        />
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </SortableContext>
+                </DndContext>
               )}
             </div>
           </div>

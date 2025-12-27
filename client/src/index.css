@@ -938,6 +938,29 @@ body {
   border-left: 3px solid var(--warning);
 }
 
+.song-item-fallback:first-child {
+  border-left-color: var(--accent-primary);
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, rgba(0, 255, 136, 0.05) 100%);
+}
+
+.song-item-fallback:first-child::before {
+  content: "NEXT";
+  position: absolute;
+  top: -8px;
+  left: 8px;
+  font-size: 0.6rem;
+  color: var(--accent-primary);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.song-item-fallback:first-child {
+  position: relative;
+  margin-top: 12px;
+}
+
 .song-item-fallback .song-title {
   color: var(--text-secondary);
 }

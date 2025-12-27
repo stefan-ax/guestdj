@@ -5,6 +5,7 @@ const cors = require('cors');
 const path = require('path');
 const { nanoid } = require('nanoid');
 const { search: youtubeSearch } = require('youtube-search-without-api-key');
+const yts = require('youtube-sr').default;
 
 const app = express();
 
@@ -178,7 +179,6 @@ function createRoom(hostName) {
     hostName,
     queue: [],
     fallbackPlaylist: [],
-    fallbackIndex: 0,
     currentSong: null,
     currentSongStartedAt: null,
     isPlaying: false,
@@ -250,12 +250,94 @@ app.get('/api/youtube/search', async (req, res) => {
   }
 });
 
-// YouTube Playlist endpoint - currently not supported with youtube-search-without-api-key
+// YouTube Playlist endpoint using youtube-sr
 app.get('/api/youtube/playlist', async (req, res) => {
-  res.status(501).json({ 
-    error: 'Playlist functionality is currently not supported. Please add songs individually by searching.',
-    type: 'not_supported'
-  });
+  const { url } = req.query;
+  
+  if (!url) {
+    return res.status(400).json({ error: 'Playlist URL is required' });
+  }
+  
+  try {
+    console.log(`Fetching YouTube playlist: ${url}`);
+    
+    // Extract playlist ID from URL
+    let playlistId;
+    try {
+      const urlObj = new URL(url);
+      playlistId = urlObj.searchParams.get('list') || url;
+    } catch (e) {
+      // If URL parsing fails, assume the string is already a playlist ID
+      playlistId = url;
+    }
+    
+    if (!playlistId) {
+      return res.status(400).json({ 
+        error: 'Invalid playlist URL. Please provide a valid YouTube playlist URL.',
+        type: 'invalid_url'
+      });
+    }
+    
+    // Check for unsupported playlist types
+    if (playlistId.startsWith('RD') || playlistId.startsWith('RDMM') || playlistId.startsWith('RDAO')) {
+      return res.status(400).json({
+        error: 'Radio/Mix playlists are not supported. Please use a regular user-created playlist instead.',
+        type: 'radio_playlist_not_supported'
+      });
+    }
+    
+    // Fetch playlist with youtube-sr
+    const playlist = await yts.getPlaylist(playlistId, { limit: 50 });
+    
+    if (!playlist || !playlist.videos || playlist.videos.length === 0) {
+      return res.status(404).json({
+        error: 'Playlist not found or is empty.',
+        type: 'playlist_empty'
+      });
+    }
+    
+    // Format the response similar to search results
+    const videos = playlist.videos.map(video => ({
+      videoId: video.id,
+      title: video.title,
+      thumbnail: video.thumbnail?.url || video.thumbnail,
+      channel: video.channel?.name || 'Unknown',
+      duration: video.durationFormatted || 'Unknown',
+      views: 'Unknown' // youtube-sr doesn't provide view counts in playlists
+    })).filter(video => video.videoId); // Filter out any invalid entries
+    
+    console.log(`Playlist fetched: "${playlist.title}" - ${videos.length} videos`);
+    
+    res.json({
+      title: playlist.title,
+      description: playlist.description || '',
+      videoCount: playlist.videoCount,
+      videos: videos
+    });
+    
+  } catch (error) {
+    console.error('YouTube playlist fetch error:', error);
+    
+    // Handle specific errors
+    if (error.message.includes('private') || error.message.includes('Private')) {
+      return res.status(403).json({
+        error: 'This playlist is private and cannot be accessed.',
+        type: 'private_playlist'
+      });
+    }
+    
+    if (error.message.includes('not found') || error.message.includes('does not exist')) {
+      return res.status(404).json({
+        error: 'Playlist not found. Please check the URL and try again.',
+        type: 'playlist_not_found'
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to fetch playlist. Please check the URL and try again.',
+      type: 'fetch_error'
+    });
+  }
 });
 
 // API Routes
@@ -365,13 +447,12 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('now-playing', { song: room.currentSong, startedAt: room.currentSongStartedAt, isPlayingFallback: false });
         io.to(roomId).emit('queue-updated', room.queue);
       } else if (room.fallbackPlaylist.length > 0) {
-        room.currentSong = room.fallbackPlaylist[room.fallbackIndex];
+        room.currentSong = room.fallbackPlaylist.shift();
         room.currentSongStartedAt = new Date();
-        room.fallbackIndex = (room.fallbackIndex + 1) % room.fallbackPlaylist.length;
         room.isPlaying = true;
         room.isPlayingFallback = true;
         io.to(roomId).emit('now-playing', { song: room.currentSong, startedAt: room.currentSongStartedAt, isPlayingFallback: true });
-        io.to(roomId).emit('fallback-index-updated', room.fallbackIndex);
+        io.to(roomId).emit('fallback-updated', room.fallbackPlaylist);
       }
     }
   });
@@ -407,9 +488,6 @@ io.on('connection', (socket) => {
     const room = getRoom(roomId);
     if (room && room.adminToken === adminToken) {
       room.fallbackPlaylist = room.fallbackPlaylist.filter(s => s.id !== songId);
-      if (room.fallbackIndex >= room.fallbackPlaylist.length) {
-        room.fallbackIndex = 0;
-      }
       io.to(roomId).emit('fallback-updated', room.fallbackPlaylist);
     }
   });
@@ -446,13 +524,12 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('queue-updated', room.queue);
       } else if (room.fallbackPlaylist.length > 0) {
         // Play from fallback playlist
-        room.currentSong = room.fallbackPlaylist[room.fallbackIndex];
+        room.currentSong = room.fallbackPlaylist.shift();
         room.currentSongStartedAt = new Date();
-        room.fallbackIndex = (room.fallbackIndex + 1) % room.fallbackPlaylist.length;
         room.isPlaying = true;
         room.isPlayingFallback = true;
         io.to(roomId).emit('now-playing', { song: room.currentSong, startedAt: room.currentSongStartedAt, isPlayingFallback: true });
-        io.to(roomId).emit('fallback-index-updated', room.fallbackIndex);
+        io.to(roomId).emit('fallback-updated', room.fallbackPlaylist);
       } else {
         room.currentSong = null;
         room.currentSongStartedAt = null;
@@ -475,13 +552,12 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('now-playing', { song: room.currentSong, startedAt: room.currentSongStartedAt, isPlayingFallback: false });
         io.to(roomId).emit('queue-updated', room.queue);
       } else if (room.fallbackPlaylist.length > 0) {
-        room.currentSong = room.fallbackPlaylist[room.fallbackIndex];
+        room.currentSong = room.fallbackPlaylist.shift();
         room.currentSongStartedAt = new Date();
-        room.fallbackIndex = (room.fallbackIndex + 1) % room.fallbackPlaylist.length;
         room.isPlaying = true;
         room.isPlayingFallback = true;
         io.to(roomId).emit('now-playing', { song: room.currentSong, startedAt: room.currentSongStartedAt, isPlayingFallback: true });
-        io.to(roomId).emit('fallback-index-updated', room.fallbackIndex);
+        io.to(roomId).emit('fallback-updated', room.fallbackPlaylist);
       } else {
         room.currentSong = null;
         room.currentSongStartedAt = null;
